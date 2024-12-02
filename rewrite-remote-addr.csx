@@ -2,6 +2,7 @@
 #r "nuget: Kokuban, 0.2.0"
 #r "nuget: Lestaly, 0.69.0"
 #nullable enable
+using System.Buffers;
 using System.Text.RegularExpressions;
 using Kokuban;
 using Lestaly;
@@ -15,8 +16,8 @@ var settings = new
     // 書き換えマッピング
     Mapping = new RemoteRewrit[]
     {
-        new(new(@"^https?://kallithea.myserver.home/(.*)$"),             m => $"https://kallithea.myserver.home/{m.Groups[1].Value}"),
-        new(new(@"^ssh://kallithea@kallithea.myserver.home:2222/(.*)$"), m => $"ssh://git@forgejo.myserver.home:2022/{m.Groups[1].Value}"),
+        new(new(@"^https?://kallithea.myserver.home/(.*)$"),             m => $"https://kallithea.myserver.home/{GetAlphaDashDot(m.Groups[1].Value)}"),
+        new(new(@"^ssh://kallithea@kallithea.myserver.home:2222/(.*)$"), m => $"ssh://git@forgejo.myserver.home:2022/{GetAlphaDashDot(m.Groups[1].Value)}"),
     },
 };
 
@@ -24,6 +25,32 @@ var settings = new
 /// <param name="Pattern"></param>
 /// <param name="Replacer"></param>
 record RemoteRewrit(Regex Pattern, Func<Match, string> Replacer);
+
+/// <summary>リポジトリパスをForgejoで有効なリポジトリ名に変換する</summary>
+/// <param name="path">リポジトリパス</param>
+/// <returns>forgejoで有効なリポジトリ名。(ただし長さの制限を満たさない可能性はある)</returns>
+public string GetAlphaDashDot(string path)
+{
+    var buffer = new ArrayBufferWriter<char>();
+    foreach (var rune in path.EnumerateRunes())
+    {
+        if (Rune.IsLetterOrDigit(rune) || rune.Value == '.' || rune.Value == '_' || rune.Value == '-')
+        {
+            var span = buffer.GetSpan();
+            var written = rune.EncodeToUtf16(span);
+            buffer.Advance(written);
+        }
+        else if (rune.Value == '/')
+        {
+            buffer.Write(".");
+        }
+        else
+        {
+            buffer.Write($"u{rune.Value:X4}");
+        }
+    }
+    return new string(buffer.WrittenSpan);
+}
 
 return await Paved.RunAsync(config: o => o.AnyPause(), action: async () =>
 {
